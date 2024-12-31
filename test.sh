@@ -54,13 +54,13 @@ without_queue_assertions() {
 dispatch_central_job() {
     echo "Dispatching job from central context..."
     docker compose exec -T queue php artisan tinker --execute "dispatch(new App\Jobs\FooJob);"
-    sleep 5
+    sleep 3
 }
 
 dispatch_tenant_job() {
     echo "Dispatching job from tenant context..."
     docker compose exec -T queue php artisan tinker --execute "App\\Models\\Tenant::first()->run(function () { dispatch(new App\Jobs\FooJob); });"
-    sleep 5
+    sleep 3
 }
 
 
