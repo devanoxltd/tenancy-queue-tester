@@ -1,4 +1,4 @@
-# Tenancy for Laravel queue testing suite
+# Tenancy for Laravel queue test suite
 
 In addition to the tests we can write using testbench, we have this repository which:
 1. Creates a new Laravel application
