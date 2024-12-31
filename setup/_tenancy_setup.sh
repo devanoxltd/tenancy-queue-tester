@@ -3,7 +3,7 @@
 set -e
 
 composer global require laravel/installer
-~/.composer/vendor/laravel/installer/bin/laravel new --no-interaction --force --database=sqlite --git src/
+~/.composer/vendor/laravel/installer/bin/laravel new --no-interaction --database=sqlite --git src/
 
 cd src/
 
