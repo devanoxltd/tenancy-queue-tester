@@ -69,7 +69,7 @@ dispatch_tenant_job() {
 rm -f src/database.sqlite
 rm -f src/database/tenantfoo.sqlite
 
-docker compose start redis # in case it's not running - the below setup code needs Redis to be running
+docker compose up -d redis # in case it's not running - the below setup code needs Redis to be running
 
 docker compose run --rm queue php artisan migrate:fresh >/dev/null
 docker compose run --rm queue php artisan tinker -v --execute "App\\Models\\Tenant::create(['id' => 'foo', 'tenancy_db_name' => 'tenantfoo.sqlite']);"
