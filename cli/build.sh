@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 tag="tenancy-queue-test-cli"
 php="8.4"
