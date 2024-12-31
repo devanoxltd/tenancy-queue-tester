@@ -54,13 +54,13 @@ without_queue_assertions() {
 dispatch_central_job() {
     echo "Dispatching job from central context..."
     docker compose exec -T queue php artisan tinker --execute "dispatch(new App\Jobs\FooJob);"
-    sleep 3
+    sleep 5
 }
 
 dispatch_tenant_job() {
     echo "Dispatching job from tenant context..."
     docker compose exec -T queue php artisan tinker --execute "App\\Models\\Tenant::first()->run(function () { dispatch(new App\Jobs\FooJob); });"
-    sleep 3
+    sleep 5
 }
 
 
@@ -98,13 +98,13 @@ echo "OK: User created in central\n"
 
 echo "Running queue:restart (after a central job)..."
 docker compose exec -T queue php artisan queue:restart >/dev/null
-sleep 3
+sleep 5
 assert_queue_worker_exited
 echo "OK: Queue worker has exited\n"
 
 echo "Starting queue worker again..."
 docker compose restart queue
-sleep 3
+sleep 5
 docker compose logs -f queue &
 
 echo
@@ -126,7 +126,7 @@ echo "OK: User created in tenant\n"
 if docker compose ps -a --format '{{.Status}}' queue | grep -q "Exited"; then
     echo "WARN: Queue worker restarted after running a tenant job post-restart (https://github.com/archtechx/tenancy/issues/1229#issuecomment-2566111616) following assertions will likely fail."
     docker compose start queue # Start the worker back up
-    sleep 3
+    sleep 5
     docker compose logs -f queue &
 else
     echo "OK: No extra restart took place"
@@ -152,7 +152,7 @@ echo "OK: User created in tenant\n"
 if docker compose ps -a --format '{{.Status}}' queue | grep -q "Exited"; then
     echo "WARN: ANOTHER extra restart took place after running a tenant job"
     docker compose start queue # Start the worker back up
-    sleep 3
+    sleep 5
     docker compose logs -f queue &
 else
     echo "OK: No second extra restart took place"
@@ -177,6 +177,6 @@ echo "OK: User created in tenant\n"
 
 echo "Running queue:restart (after a tenant job)..."
 docker compose exec -T queue php artisan queue:restart >/dev/null
-sleep 3
+sleep 5
 assert_queue_worker_exited
 echo "OK: Queue worker has exited"
