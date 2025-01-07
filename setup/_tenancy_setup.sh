@@ -39,3 +39,7 @@ cp database/migrations/*create_users*.php database/migrations/tenant
 
 mkdir app/Jobs
 cp ../setup/FooJob.php app/Jobs/FooJob.php
+cp ../setup/LogAbcJob.php app/Jobs/LogAbcJob.php
+
+rm app/Providers/AppServiceProvider.php
+cp ../setup/AppServiceProvider.php app/Providers/AppServiceProvider.php

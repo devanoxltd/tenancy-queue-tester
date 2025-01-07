@@ -2,6 +2,9 @@
 
 set -e
 
+PERSISTENT=${PERSISTENT:-"0"}
+FORCEREFRESH=${FORCEREFRESH:-"1"} # No config needed for this from 3.8.5/4.0 on
+
 assert_queue_worker_running() {
    if docker compose ps -a --format '{{.Status}}' queue | grep -q "Exited"; then
        echo "ERR: Queue worker has exited!"
@@ -28,14 +31,15 @@ assert_no_queue_failures() {
 
 assert_tenant_users() {
     assert_no_queue_failures
-    local expected_count=$1
-    test "$(sqlite3 src/database/tenantfoo.sqlite 'SELECT count(*) from USERS')" -eq "$expected_count" || { echo "ERR: Tenant DB expects $expected_count user(s)."; exit 1; }
+    local tenant=$1
+    local expected_count=$2
+    test "$(sqlite3 src/database/tenant${tenant}.sqlite 'SELECT count(*) from users')" -eq "$expected_count" || { echo "ERR: Tenant DB $tenant expects $expected_count user(s)."; exit 1; }
 }
 
 assert_central_users() {
     assert_no_queue_failures
     local expected_count=$1
-    test "$(sqlite3 src/database/database.sqlite 'SELECT count(*) from USERS')" -eq "$expected_count" || { echo "ERR: Central DB expects $expected_count user(s)."; exit 1; }
+    test "$(sqlite3 src/database/database.sqlite 'SELECT count(*) from users')" -eq "$expected_count" || { echo "ERR: Central DB expects $expected_count user(s)."; exit 1; }
 }
 
 without_queue_assertions() {
@@ -58,21 +62,39 @@ dispatch_central_job() {
 }
 
 dispatch_tenant_job() {
-    echo "Dispatching job from tenant context..."
-    docker compose exec -T queue php artisan tinker --execute "App\\Models\\Tenant::first()->run(function () { dispatch(new App\Jobs\FooJob); });"
+    local tenant=$1
+    echo "Dispatching job from tenant ${tenant} context..."
+    docker compose exec -T queue php artisan tinker --execute "App\\Models\\Tenant::find('${tenant}')->run(function () { dispatch(new App\Jobs\FooJob); });"
     sleep 5
 }
 
+expect_worker_context() {
+    expected_context="$1"
+
+    actual_context=$(cat src/jobprocessed_context)
+
+    if [ "$actual_context" = "$expected_context" ]; then
+        echo "OK: JobProcessed context is $expected_context"
+    else
+        if [ "$PERSISTENT" -eq 1 ]; then
+            echo "ERR: JobProcessed context is NOT $expected_context"
+            exit 1
+        else
+            echo "WARN: JobProcessed context is NOT $expected_context"
+        fi
+    fi
+}
 
 ###################################### SETUP ######################################
 
 rm -f src/database.sqlite
 rm -f src/database/tenantfoo.sqlite
+rm -f src/database/tenantbar.sqlite
 
 docker compose up -d redis # in case it's not running - the below setup code needs Redis to be running
 
 docker compose run --rm queue php artisan migrate:fresh >/dev/null
-docker compose run --rm queue php artisan tinker -v --execute "App\\Models\\Tenant::create(['id' => 'foo', 'tenancy_db_name' => 'tenantfoo.sqlite']);"
+docker compose run --rm queue php artisan tinker -v --execute "App\\Models\\Tenant::create(['id' => 'foo', 'tenancy_db_name' => 'tenantfoo.sqlite']);App\\Models\\Tenant::create(['id' => 'bar', 'tenancy_db_name' => 'tenantbar.sqlite']);"
 
 docker compose down; docker compose up -d --wait
 docker compose logs -f queue &
@@ -80,27 +102,46 @@ docker compose logs -f queue &
 # Kill any log watchers that may still be alive
 trap "docker compose stop queue" EXIT
 
-echo "Setup complete, starting tests...\n"
+echo "Setup complete, starting tests..."
 
 ################### BASIC PHASE: Assert jobs use the right context ###################
+echo
+echo "-------- BASIC PHASE --------"
+echo
 
-dispatch_tenant_job
-assert_tenant_users 1
+dispatch_tenant_job foo
+assert_tenant_users foo 1
+assert_tenant_users bar 0
 assert_central_users 0
-echo "OK: User created in tenant\n"
+echo "OK: User created in tenant foo"
+expect_worker_context tenant_foo
+
+# Assert that the worker correctly distinguishes not just between tenant and central
+# contexts, but also between different tenants.
+dispatch_tenant_job bar
+assert_tenant_users foo 1
+assert_tenant_users bar 1
+assert_central_users 0
+echo "OK: User created in tenant bar"
+expect_worker_context tenant_bar
 
 dispatch_central_job
-assert_tenant_users 1
+assert_tenant_users foo 1
+assert_tenant_users bar 1
 assert_central_users 1
-echo "OK: User created in central\n"
+echo "OK: User created in central"
+expect_worker_context central
 
 ############# RESTART PHASE: Assert the worker always responds to signals #############
+echo
+echo "-------- RESTART PHASE --------"
+echo
 
 echo "Running queue:restart (after a central job)..."
 docker compose exec -T queue php artisan queue:restart >/dev/null
 sleep 5
 assert_queue_worker_exited
-echo "OK: Queue worker has exited\n"
+echo "OK: Queue worker has exited"
 
 echo "Starting queue worker again..."
 docker compose restart queue
@@ -109,7 +150,7 @@ docker compose logs -f queue &
 
 echo
 
-dispatch_tenant_job
+dispatch_tenant_job foo
 # IMPORTANT:
 # If the worker remains in the tenant context after running a job
 # it not only fails the final assertion here by not responding to queue:restart.
@@ -119,12 +160,13 @@ dispatch_tenant_job
 # Then, if the queue worker has shut down, we simply start it up again and continue
 # with the tests. That said, if the warning has been printed, it should be pretty much
 # guaranteed that the assertion about queue:restart post-tenant job will fail too.
-without_queue_assertions assert_tenant_users 2
+without_queue_assertions assert_tenant_users foo 2
 without_queue_assertions assert_central_users 1
-echo "OK: User created in tenant\n"
+echo "OK: User created in tenant foo"
+expect_worker_context tenant_foo
 
 if docker compose ps -a --format '{{.Status}}' queue | grep -q "Exited"; then
-    echo "WARN: Queue worker restarted after running a tenant job post-restart (https://github.com/archtechx/tenancy/issues/1229#issuecomment-2566111616) following assertions will likely fail."
+    echo "WARN: Queue worker restarted after running a tenant job post-restart (https://github.com/archtechx/tenancy/issues/1229#issuecomment-2566111616), following assertions will likely fail."
     docker compose start queue # Start the worker back up
     sleep 5
     docker compose logs -f queue &
@@ -140,14 +182,16 @@ fi
 # This time, just to add more context, we can try to dispatch a central job first
 # in case it changes anything. But odds are that in broken setups we'll see both warnings.
 dispatch_central_job
-without_queue_assertions assert_tenant_users 2
+without_queue_assertions assert_tenant_users foo 2
 without_queue_assertions assert_central_users 2
-echo "OK: User created in central\n"
+echo "OK: User created in central"
+expect_worker_context central
 
-dispatch_tenant_job
-without_queue_assertions assert_tenant_users 3
+dispatch_tenant_job foo
+without_queue_assertions assert_tenant_users foo 3
 without_queue_assertions assert_central_users 2
-echo "OK: User created in tenant\n"
+echo "OK: User created in tenant foo"
+expect_worker_context tenant_foo
 
 if docker compose ps -a --format '{{.Status}}' queue | grep -q "Exited"; then
     echo "WARN: ANOTHER extra restart took place after running a tenant job"
@@ -167,16 +211,61 @@ docker compose exec redis redis-cli -n 1 DEL laravel_database_illuminate:queue:r
 
 # Also make the queue worker reload the value from cache
 docker compose restart queue
-docker compose logs -f queue &
+# restart doesn't kill log watchers, so we don't need to create another one
 
 # Finally, we dispatch a tenant job *immediately* before a restart.
-dispatch_tenant_job
-assert_tenant_users 4
+dispatch_tenant_job foo
+assert_tenant_users foo 4
 assert_central_users 2
-echo "OK: User created in tenant\n"
+echo "OK: User created in tenant foo"
+expect_worker_context tenant_foo
 
 echo "Running queue:restart (after a tenant job)..."
 docker compose exec -T queue php artisan queue:restart >/dev/null
 sleep 5
 assert_queue_worker_exited
 echo "OK: Queue worker has exited"
+
+############# SYNC PHASE: Assert that dispatching sync jobs doesn't affect outer context #############
+echo
+echo "-------- SYNC PHASE --------"
+echo
+
+docker compose run --rm queue php artisan tinker -v --execute "tenancy()->initialize('foo'); App\Jobs\FooJob::dispatchSync(); file_put_contents('sync_context', tenant() ? ('tenant_' . tenant('id')) : 'central');"
+without_queue_assertions assert_tenant_users foo 5
+without_queue_assertions assert_tenant_users bar 1
+without_queue_assertions assert_central_users 2
+
+if grep -q 'tenant_foo' src/sync_context; then
+    echo "OK: Sync dispatch preserved context"
+else
+    echo "ERR: Sync dispatch changed context"
+    exit 1
+fi
+
+######## REFRESH PHASE: Assert that the worker doesn't hold on to an outdated tenant instance ########
+echo
+echo "-------- REFRESH PHASE --------"
+echo
+
+docker compose start queue
+sleep 5
+docker compose logs -f queue &
+dispatch_tenant_job bar
+assert_tenant_users bar 2
+assert_central_users 2
+echo "OK: User created in tenant bar"
+
+docker compose exec -T queue php artisan tinker --execute "\$tenant = App\Models\Tenant::find('bar'); \$tenant->update(['abc' => 'def']); \$tenant->run(function () { dispatch(new App\Jobs\LogAbcJob); });"
+sleep 5
+
+if grep -q 'def' src/abc; then
+    echo "OK: Worker notices changes made to the current tenant outside the worker"
+else
+    if [ "$FORCEREFRESH" -eq 1 ]; then
+        echo "ERR: Worker does NOT notice changes made to the current tenant outside the worker"
+        exit 1
+    else
+        echo "WARN: Worker does NOT notice changes made to the current tenant outside the worker"
+    fi
+fi
