@@ -87,11 +87,11 @@ expect_worker_context() {
 
 ###################################### SETUP ######################################
 
-rm -f src/database.sqlite
-rm -f src/database/tenantfoo.sqlite
-rm -f src/database/tenantbar.sqlite
-rm -f src/abc
-rm -f src/sync_context
+echo "" > src/abc
+echo "" > src/sync_context
+# These files weren't created by the host, but by docker, so we make sure the container also deletes them
+# to prevent permissions issues in various environments.
+docker compose run --rm queue bash -c 'rm -f database/tenantfoo.sqlite database/tenantbar.sqlite'
 
 docker compose up -d redis # in case it's not running - the below setup code needs Redis to be running
 
@@ -266,7 +266,7 @@ EXPECTED_ABC=$(openssl rand -base64 12)
 docker compose exec -T queue php artisan tinker --execute "\$tenant = App\Models\Tenant::find('bar'); \$tenant->update(['abc' => '${EXPECTED_ABC}']); \$tenant->run(function () { dispatch(new App\Jobs\LogAbcJob); });"
 sleep 5
 
-if grep -q $EXPECTED_ABC src/abc; then
+if grep -q "${EXPECTED_ABC}" src/abc; then
     echo "OK: Worker notices changes made to the current tenant outside the worker"
 else
     if [ "$FORCEREFRESH" -eq 1 ]; then
