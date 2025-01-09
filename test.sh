@@ -90,6 +90,8 @@ expect_worker_context() {
 rm -f src/database.sqlite
 rm -f src/database/tenantfoo.sqlite
 rm -f src/database/tenantbar.sqlite
+rm -f src/abc
+rm -f src/sync_context
 
 docker compose up -d redis # in case it's not running - the below setup code needs Redis to be running
 
@@ -231,6 +233,9 @@ echo
 echo "-------- SYNC PHASE --------"
 echo
 
+# The only thing we can check here is that dispatching a job doesn't revert the context to central
+# when executed synchronously.
+
 docker compose run --rm queue php artisan tinker -v --execute "tenancy()->initialize('foo'); App\Jobs\FooJob::dispatchSync(); file_put_contents('sync_context', tenant() ? ('tenant_' . tenant('id')) : 'central');"
 without_queue_assertions assert_tenant_users foo 5
 without_queue_assertions assert_tenant_users bar 1
@@ -256,10 +261,12 @@ assert_tenant_users bar 2
 assert_central_users 2
 echo "OK: User created in tenant bar"
 
-docker compose exec -T queue php artisan tinker --execute "\$tenant = App\Models\Tenant::find('bar'); \$tenant->update(['abc' => 'def']); \$tenant->run(function () { dispatch(new App\Jobs\LogAbcJob); });"
+EXPECTED_ABC=$(openssl rand -base64 12)
+
+docker compose exec -T queue php artisan tinker --execute "\$tenant = App\Models\Tenant::find('bar'); \$tenant->update(['abc' => '${EXPECTED_ABC}']); \$tenant->run(function () { dispatch(new App\Jobs\LogAbcJob); });"
 sleep 5
 
-if grep -q 'def' src/abc; then
+if grep -q $EXPECTED_ABC src/abc; then
     echo "OK: Worker notices changes made to the current tenant outside the worker"
 else
     if [ "$FORCEREFRESH" -eq 1 ]; then
