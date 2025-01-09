@@ -89,6 +89,7 @@ expect_worker_context() {
 
 echo "" > src/abc
 echo "" > src/sync_context
+chmod 777 src/abc src/sync_context
 # These files weren't created by the host, but by docker, so we make sure the container also deletes them
 # to prevent permissions issues in various environments.
 docker compose run --rm queue bash -c 'rm -f database/tenantfoo.sqlite database/tenantbar.sqlite'
