@@ -25,4 +25,4 @@ services:
     volumes:
       - ./src:/var/www/html
       # When testing a local tenancy version, you can use a symlink in combination with:
-      # - ~/Projects/tenancy:/var/www/html/vendor/stancl/tenancy
+      # - ~/Projects/tenancy:/var/www/html/vendor/devanoxltd/tenancy

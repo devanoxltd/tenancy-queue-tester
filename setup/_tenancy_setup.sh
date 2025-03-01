@@ -8,10 +8,10 @@ composer global require laravel/installer
 cd src/
 
 # If a specific Laravel version is desired
-# composer require -W laravel/framework:11.15.0
+# composer require -W laravel/framework:12.0.0
 
 composer config minimum-stability dev
-composer require "stancl/tenancy:$TENANCY_VERSION"
+composer require "devanoxltd/tenancy:$TENANCY_VERSION"
 
 php artisan tenancy:install --no-interaction
 php artisan migrate
@@ -20,15 +20,15 @@ rm bootstrap/providers.php
 cp ../setup/providers.php bootstrap/providers.php
 
 cp ../setup/Tenant_base.php app/Models/Tenant.php
-if [ ! -f vendor/stancl/tenancy/src/Contracts/TenantWithDatabase.php ]; then
-    sed -i 's/use Stancl\\Tenancy\\Contracts\\TenantWithDatabase/use Stancl\\Tenancy\\Database\\Contracts\\TenantWithDatabase/' app/Models/Tenant.php
+if [ ! -f vendor/devanoxltd/tenancy/src/Contracts/TenantWithDatabase.php ]; then
+    sed -i 's/use Devanox\\Tenancy\\Contracts\\TenantWithDatabase/use Devanox\\Tenancy\\Database\\Contracts\\TenantWithDatabase/' app/Models/Tenant.php
 fi
 
 sed -i 's/QUEUE_CONNECTION=database/QUEUE_CONNECTION=redis/' .env
 sed -i 's/REDIS_HOST=127.0.0.1/REDIS_HOST=redis/' .env
 sed -i 's/CACHE_STORE=database/CACHE_STORE=redis/' .env
-sed -i 's/Stancl\\Tenancy\\Database\\Models\\Tenant/App\\Models\\Tenant/' config/tenancy.php
-sed -i 's/.*RedisTenancyBootstrapper::class.*/        \\Stancl\\Tenancy\\Bootstrappers\\RedisTenancyBootstrapper::class,/' config/tenancy.php
+sed -i 's/Devanox\\Tenancy\\Database\\Models\\Tenant/App\\Models\\Tenant/' config/tenancy.php
+sed -i 's/.*RedisTenancyBootstrapper::class.*/        \\Devanox\\Tenancy\\Bootstrappers\\RedisTenancyBootstrapper::class,/' config/tenancy.php
 sed -i 's/'\''prefixed_connections'\'' => \[.*$/'\''prefixed_connections'\'' => [ '\''cache'\'',/' config/tenancy.php
 echo "REDIS_QUEUE_CONNECTION=queue" >> .env
 

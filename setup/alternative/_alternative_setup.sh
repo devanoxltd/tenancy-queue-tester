@@ -13,6 +13,6 @@ cp ../setup/alternative/database.php config/database.php
 rm app/Providers/AppServiceProvider.php
 cp ../setup/alternative/AppServiceProvider.php app/Providers/AppServiceProvider.php
 
-if [ -f vendor/stancl/tenancy/src/Bootstrappers/PersistentQueueTenancyBootstrapper.php ]; then
+if [ -f vendor/devanoxltd/tenancy/src/Bootstrappers/PersistentQueueTenancyBootstrapper.php ]; then
     sed -i 's/QueueTenancyBootstrapper/PersistentQueueTenancyBootstrapper/g' config/tenancy.php
 fi
